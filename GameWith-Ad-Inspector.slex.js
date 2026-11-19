@@ -3,11 +3,10 @@
 // @name        GameWith PR Cleaner
 // @name:ja     GameWith下部PR広告除去
 // @author      ChaiMoca
-// @description Hide GameWith bottom overlay advertisement.
-// @description:ja GameWithの下部固定PR広告を非表示にします。
 // @include     https://gamewith.jp/*
 // @include     https://*.gamewith.jp/*
-// @version     1.0
+// @run-at      document-start
+// @version     1.1
 // @require     api
 // ==/UserScript==
 
