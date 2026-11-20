@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.3
-// @description SAB UI, filter download, and basic rule count test
+// @version     1.4.4
+// @description SAB domain check and safe CSS rule injection
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -12,7 +12,94 @@
 
     var shieldId = 'sab-test-button';
     var panelId = 'sab-status-panel';
+    var styleId = 'sab-applied-css-style';
     var filtersLoaded = false;
+    var maxCssRules = 1500;
+
+    function isTargetDomain() {
+        var host = (location && location.hostname) ? location.hostname.toLowerCase() : '';
+        if (!host) return false;
+        return (
+            host === 'gamewith.jp' ||
+            host.indexOf('.gamewith.jp') !== -1 ||
+            host === 'game8.jp' ||
+            host.indexOf('.game8.jp') !== -1
+        );
+    }
+
+    function isSafeCssSelector(selector) {
+        if (!selector || typeof selector !== 'string') return false;
+        if (selector.length > 120) return false;
+        // 複雑なABP拡張擬似クラスや制御文字・URLスキーム風文字を除外
+        if (
+            selector.indexOf(':-abp-') !== -1 ||
+            selector.indexOf(':has(') !== -1 ||
+            selector.indexOf(':contains(') !== -1 ||
+            selector.indexOf(':matches-css(') !== -1 ||
+            selector.indexOf(';') !== -1 ||
+            selector.indexOf('{') !== -1 ||
+            selector.indexOf('}') !== -1 ||
+            selector.indexOf('expression(') !== -1
+        ) {
+            return false;
+        }
+        return true;
+    }
+
+    function applyCssRules(selectors) {
+        if (!isTargetDomain()) {
+            return 0;
+        }
+
+        var parent = document.head || document.documentElement || document.body;
+        if (!parent) {
+            return 0;
+        }
+
+        var existing = document.getElementById(styleId);
+        if (existing && existing.parentNode) {
+            existing.parentNode.removeChild(existing);
+        }
+
+        var styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        styleEl.type = 'text/css';
+
+        var appliedCount = 0;
+        var cssChunks = [];
+        var i;
+        var sel;
+
+        for (i = 0; i < selectors.length && appliedCount < maxCssRules; i++) {
+            sel = selectors[i];
+            if (!isSafeCssSelector(sel)) {
+                continue;
+            }
+            cssChunks.push(sel + '{display:none !important;visibility:hidden !important;}');
+            appliedCount++;
+        }
+
+        if (cssChunks.length === 0) {
+            return 0;
+        }
+
+        styleEl.textContent = cssChunks.join('\n');
+        parent.appendChild(styleEl);
+
+        // ブラウザ側でセレクタ構文が拒否されていないか検証
+        try {
+            if (styleEl.sheet && styleEl.sheet.cssRules && styleEl.sheet.cssRules.length === 0) {
+                if (styleEl.parentNode) {
+                    styleEl.parentNode.removeChild(styleEl);
+                }
+                return 0;
+            }
+        } catch (e) {
+            // クロスオリジンや制限環境でsheet参照に失敗しても要素注入自体は維持
+        }
+
+        return appliedCount;
+    }
 
     function createPanel() {
         if (document.getElementById(panelId)) {
@@ -51,6 +138,7 @@
             '<div>EasyList：<span id="sab-easylist-status">未取得</span></div>' +
             '<div>EasyPrivacy：<span id="sab-privacy-status">未取得</span></div>' +
             '<div>ルール解析：<span id="sab-rule-stats">未解析</span></div>' +
+            '<div>適用CSS：<span id="sab-applied-css">0</span></div>' +
             '<div>通信遮断数：0</div>' +
             '<div>広告要素除去数：0</div>' +
             '<div style="margin-top:12px;text-align:right;"><span id="sab-close-button" style="display:inline-block;padding:5px 14px;background:#444;border-radius:6px;cursor:pointer;">閉じる</span></div>';
@@ -69,17 +157,22 @@
     function parseEasyListRules(text) {
         var cssCount = 0;
         var exceptionCount = 0;
+        var selectors = [];
 
         if (typeof text !== 'string' || text.length === 0) {
             return {
                 cssCount: 0,
-                exceptionCount: 0
+                exceptionCount: 0,
+                selectors: selectors
             };
         }
 
         var start = 0;
         var lineEnd;
         var line;
+        var markerIndex;
+        var prefix;
+        var selector;
 
         while (start <= text.length) {
             lineEnd = text.indexOf('\n', start);
@@ -105,12 +198,21 @@
                 exceptionCount++;
             } else if (line.indexOf('##') !== -1) {
                 cssCount++;
+                markerIndex = line.indexOf('##');
+                prefix = line.slice(0, markerIndex);
+                selector = line.slice(markerIndex + 2).replace(/^\s+|\s+$/g, '');
+
+                // まずはドメイン指定なしの汎用隠蔽ルールを収集（上限まで）
+                if (!prefix && selector && selectors.length < maxCssRules * 2) {
+                    selectors.push(selector);
+                }
             }
         }
 
         return {
             cssCount: cssCount,
-            exceptionCount: exceptionCount
+            exceptionCount: exceptionCount,
+            selectors: selectors
         };
     }
 
@@ -128,12 +230,18 @@
         var ruleStats =
             document.getElementById('sab-rule-stats');
 
+        var appliedCssEl =
+            document.getElementById('sab-applied-css');
+
         if (!easyListStatus || !privacyStatus) return;
 
         easyListStatus.textContent = '取得中...';
         privacyStatus.textContent = '取得中...';
         if (ruleStats) {
             ruleStats.textContent = '解析中...';
+        }
+        if (appliedCssEl) {
+            appliedCssEl.textContent = '0';
         }
 
         try {
@@ -149,6 +257,13 @@
                 if (ruleStats) {
                     ruleStats.textContent =
                         'CSS ' + parsed.cssCount + ' / 例外 ' + parsed.exceptionCount;
+                }
+
+                var applied = applyCssRules(parsed.selectors);
+                if (appliedCssEl) {
+                    appliedCssEl.textContent = isTargetDomain()
+                        ? (applied + '件適用')
+                        : '対象外ドメイン';
                 }
             } else {
                 easyListStatus.textContent = '取得失敗';
