@@ -1,8 +1,9 @@
+
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.5.1
-// @description SAB cosmetic rule analysis
+// @version     1.5.2
+// @description SAB isolated cosmetic rule analysis
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -12,8 +13,8 @@
 
     var shieldId = 'sab-test-button';
     var panelId = 'sab-status-panel';
-
     var filtersLoaded = false;
+
     var easyListText = '';
     var easyPrivacyText = '';
 
@@ -68,150 +69,93 @@
             });
     }
 
-    function domainMatches(domain, hostname) {
-        domain = domain.toLowerCase().replace(/^\./, '');
-        hostname = hostname.toLowerCase();
-
-        return hostname === domain ||
-            hostname.endsWith('.' + domain);
-    }
-
-    function domainRuleMatches(domainPart, hostname) {
-        if (!domainPart) return true;
-
-        var domains = domainPart.toLowerCase().split(',');
-        var included = [];
-        var excluded = [];
-
-        for (var i = 0; i < domains.length; i++) {
-            var domain = domains[i].trim();
-
-            if (!domain) continue;
-
-            if (domain.charAt(0) === '~') {
-                excluded.push(domain.substring(1));
-            } else {
-                included.push(domain);
-            }
-        }
-
-        for (var j = 0; j < excluded.length; j++) {
-            if (domainMatches(excluded[j], hostname)) {
-                return false;
-            }
-        }
-
-        if (included.length === 0) return true;
-
-        for (var k = 0; k < included.length; k++) {
-            if (domainMatches(included[k], hostname)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    function isUsableSelector(selector) {
-        selector = selector.trim();
-
-        if (!selector || selector.length > 1000) return false;
-
-        var unsupported = [
-            ':-abp-',
-            ':has-text(',
-            ':contains(',
-            ':xpath(',
-            ':matches-css(',
-            ':matches-attr(',
-            ':matches-property(',
-            ':upward(',
-            ':remove(',
-            ':style('
-        ];
-
-        for (var i = 0; i < unsupported.length; i++) {
-            if (selector.indexOf(unsupported[i]) !== -1) {
-                return false;
-            }
-        }
-
-        if (
-            /[{};\r\n]/.test(selector) ||
-            selector === 'html' ||
-            selector === 'body' ||
-            selector === 'div' ||
-            selector === 'span' ||
-            selector === 'iframe' ||
-            selector === '*'
-        ) {
-            return false;
-        }
-
-        try {
-            document.querySelector(selector);
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
+    // 解析処理はUIと独立
     function analyzeCosmeticRules() {
-        var hostname = location.hostname.toLowerCase();
+        try {
+            var hostname = location.hostname.toLowerCase();
+            var sources = [easyListText, easyPrivacyText];
+            var unique = Object.create(null);
+            var count = 0;
 
-        var sources = [
-            easyListText,
-            easyPrivacyText
-        ];
+            for (var s = 0; s < sources.length; s++) {
+                if (!sources[s]) continue;
 
-        var unique = Object.create(null);
-        var count = 0;
+                var lines = sources[s].split(/\r?\n/);
 
-        for (var s = 0; s < sources.length; s++) {
-            if (!sources[s]) continue;
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].trim();
 
-            var lines = sources[s].split(/\r?\n/);
+                    if (!line || line.charAt(0) === '!') continue;
 
-            for (var i = 0; i < lines.length; i++) {
-                var line = lines[i].trim();
+                    var index = line.indexOf('##');
+                    if (index < 0 || line.indexOf('#@#') >= 0) continue;
 
-                if (
-                    !line ||
-                    line.charAt(0) === '!' ||
-                    line.indexOf('[Adblock') === 0
-                ) {
-                    continue;
+                    var domainPart = line.substring(0, index);
+                    var selector = line.substring(index + 2).trim();
+
+                    if (!selector || selector.length > 1000) continue;
+
+                    if (domainPart) {
+                        var domains = domainPart.toLowerCase().split(',');
+                        var matched = false;
+                        var excluded = false;
+
+                        for (var d = 0; d < domains.length; d++) {
+                            var domain = domains[d].trim();
+
+                            if (domain.charAt(0) === '~') {
+                                domain = domain.substring(1);
+
+                                if (
+                                    hostname === domain ||
+                                    hostname.endsWith('.' + domain)
+                                ) {
+                                    excluded = true;
+                                }
+                            } else if (
+                                hostname === domain ||
+                                hostname.endsWith('.' + domain)
+                            ) {
+                                matched = true;
+                            }
+                        }
+
+                        if (excluded || !matched) continue;
+                    }
+
+                    if (
+                        /[{};\r\n]/.test(selector) ||
+                        selector.indexOf(':-abp-') >= 0 ||
+                        selector.indexOf(':has-text(') >= 0 ||
+                        selector.indexOf(':xpath(') >= 0
+                    ) {
+                        continue;
+                    }
+
+                    try {
+                        document.querySelector(selector);
+                    } catch (e) {
+                        continue;
+                    }
+
+                    if (unique[selector]) continue;
+
+                    unique[selector] = true;
+                    count++;
+
+                    if (count >= 1500) break;
                 }
 
-                // 今回は通常の ## ルールだけを集計
-                // 例外ルール #@# は対象外
-                var index = line.indexOf('##');
-
-                if (index < 0) continue;
-                if (line.indexOf('#@#') >= 0) continue;
-
-                var domainPart = line.substring(0, index);
-                var selector = line.substring(index + 2).trim();
-
-                if (!domainRuleMatches(domainPart, hostname)) {
-                    continue;
-                }
-
-                if (!isUsableSelector(selector)) {
-                    continue;
-                }
-
-                if (unique[selector]) continue;
-
-                unique[selector] = true;
-                count++;
+                if (count >= 1500) break;
             }
-        }
 
-        var countElement = document.getElementById('sab-rule-count');
+            var output = document.getElementById('sab-rule-count');
 
-        if (countElement) {
-            countElement.textContent = String(count);
+            if (output) {
+                output.textContent = String(count);
+            }
+        } catch (e) {
+            // 解析失敗時もUIには影響させない
         }
     }
 
@@ -238,6 +182,7 @@
 
             if (typeof easyList === 'string' && easyList.length > 0) {
                 easyListText = easyList;
+
                 easyListStatus.textContent =
                     '取得成功（' + easyList.length + '文字）';
             } else {
@@ -257,6 +202,7 @@
                 easyPrivacy.length > 0
             ) {
                 easyPrivacyText = easyPrivacy;
+
                 privacyStatus.textContent =
                     '取得成功（' + easyPrivacy.length + '文字）';
             } else {
@@ -266,14 +212,24 @@
             privacyStatus.textContent = 'エラー';
         }
 
-        analyzeCosmeticRules();
+        // 解析エラーを外側に伝播させない
+        try {
+            analyzeCosmeticRules();
+        } catch (e) {
+            // 何もしない
+        }
     }
 
+    // v1.4.0の盾表示処理
     function showShield() {
         if (!document.body) return;
-        if (document.getElementById(shieldId)) return;
+
+        if (document.getElementById(shieldId)) {
+            return;
+        }
 
         var button = document.createElement('div');
+
         button.id = shieldId;
         button.textContent = '🛡';
 
@@ -320,7 +276,10 @@
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initialize);
+        document.addEventListener(
+            'DOMContentLoaded',
+            initialize
+        );
     } else {
         initialize();
     }
