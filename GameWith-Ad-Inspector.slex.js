@@ -1,62 +1,77 @@
-// ==UserScript==
-// @name        SAB Display Test
+﻿// ==UserScript==
+// @name        Simple AD Blocker Shield Test
 // @namespace   custom.sleipnir
-// @version     1.0
-// @description Simple display test
+// @author      Custom
+// @description Shield icon display test
 // @include     *://*/*
+// @version     1.2.6
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    function showTest() {
-        if (!document.body) return;
-
-        if (document.getElementById('sab-test-button')) {
+    function showShield() {
+        if (document.getElementById('sab-test-shield')) {
             return;
         }
 
-        var button = document.createElement('div');
+        if (!document.body) {
+            return;
+        }
 
-        button.id = 'sab-test-button';
-        button.textContent = 'TEST';
+        var button = document.createElement('button');
 
-        button.style.cssText = [
-            'position:fixed',
-            'right:20px',
-            'bottom:30px',
-            'z-index:2147483647',
-            'width:55px',
-            'height:55px',
-            'border-radius:50%',
-            'background:#e53935',
-            'color:white',
-            'font-size:16px',
-            'font-weight:bold',
-            'display:flex',
-            'align-items:center',
-            'justify-content:center',
-            'box-shadow:0 2px 8px #000',
-            'pointer-events:auto'
-        ].join(';');
+        button.id = 'sab-test-shield';
+        button.textContent = '🛡';
 
-        button.addEventListener('click', function () {
-            alert('Sleipnir extension is working!');
-        });
+        button.style.cssText =
+            'position:fixed;' +
+            'right:12px;' +
+            'bottom:12px;' +
+            'z-index:2147483647;' +
+            'width:48px;' +
+            'height:48px;' +
+            'background:#1976d2;' +
+            'color:white;' +
+            'border:2px solid white;' +
+            'border-radius:50%;' +
+            'font-size:24px;' +
+            'line-height:44px;' +
+            'text-align:center;' +
+            'padding:0;' +
+            'margin:0;' +
+            'display:block;' +
+            'visibility:visible;' +
+            'opacity:1;' +
+            'box-shadow:0 2px 8px rgba(0,0,0,.4);' +
+            '-webkit-appearance:none;' +
+            'appearance:none;';
+
+        button.onclick = function () {
+            alert('Shield icon is working!');
+        };
 
         document.body.appendChild(button);
+    }
+
+    function initialize() {
+        showShield();
+
+        setTimeout(showShield, 1000);
+        setTimeout(showShield, 3000);
     }
 
     if (document.readyState === 'loading') {
         document.addEventListener(
             'DOMContentLoaded',
-            showTest
+            initialize,
+            false
         );
-    } else {
-        showTest();
-    }
 
-    setTimeout(showTest, 1000);
-    setTimeout(showTest, 3000);
+        setTimeout(initialize, 1000);
+        setTimeout(initialize, 3000);
+    } else {
+        initialize();
+    }
 
 })();
