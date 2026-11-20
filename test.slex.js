@@ -2,8 +2,8 @@
 // ==UserScript==
 // @name        SAB Parser Test
 // @namespace   custom.sleipnir
-// @version     1.0.1
-// @description Independent EasyList cosmetic rule parser test
+// @version     1.0.2
+// @description Site-specific EasyList and EasyPrivacy parser test
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -81,13 +81,44 @@
             });
     }
 
-    function countCosmeticRules(text, hostname) {
-        var lines = text.split(/\r?\n/);
-        var seen = {};
-        var count = 0;
-        var exceptions = 0;
+    function domainMatches(domainPart, hostname) {
+        if (!domainPart) return true;
 
-        hostname = hostname.toLowerCase();
+        var domains = domainPart.toLowerCase().split(',');
+        var matched = false;
+        var excluded = false;
+
+        for (var i = 0; i < domains.length; i++) {
+            var domain = domains[i].replace(/^\s+|\s+$/g, '');
+
+            if (!domain) continue;
+
+            if (domain.charAt(0) === '~') {
+                domain = domain.substring(1);
+
+                if (
+                    hostname === domain ||
+                    hostname.slice(-(domain.length + 1)) === '.' + domain
+                ) {
+                    excluded = true;
+                }
+            } else if (
+                hostname === domain ||
+                hostname.slice(-(domain.length + 1)) === '.' + domain
+            ) {
+                matched = true;
+            }
+        }
+
+        return matched && !excluded;
+    }
+
+    function parseFilter(text, hostname) {
+        var lines = text.split(/\r?\n/);
+        var rules = [];
+        var exceptions = [];
+        var seenRules = {};
+        var seenExceptions = {};
 
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i].replace(/^\s+|\s+$/g, '');
@@ -97,58 +128,90 @@
             var exceptionIndex = line.indexOf('#@#');
 
             if (exceptionIndex !== -1) {
-                exceptions++;
+                var exceptionDomain = line.substring(0, exceptionIndex);
+                var exceptionSelector = line.substring(exceptionIndex + 3);
+
+                if (
+                    exceptionSelector &&
+                    domainMatches(exceptionDomain, hostname) &&
+                    !seenExceptions[exceptionSelector]
+                ) {
+                    seenExceptions[exceptionSelector] = true;
+                    exceptions.push(exceptionSelector);
+                }
+
                 continue;
             }
 
-            var separator = line.indexOf('##');
-
-            if (separator === -1) continue;
-
-            var domainPart = line.substring(0, separator);
-            var selector = line.substring(separator + 2);
-
-            if (!selector) continue;
-
-            if (domainPart) {
-                var domains = domainPart.toLowerCase().split(',');
-                var matched = false;
-                var excluded = false;
-
-                for (var d = 0; d < domains.length; d++) {
-                    var domain = domains[d].replace(/^\s+|\s+$/g, '');
-
-                    if (!domain) continue;
-
-                    if (domain.charAt(0) === '~') {
-                        domain = domain.substring(1);
-
-                        if (
-                            hostname === domain ||
-                            hostname.slice(-(domain.length + 1)) === '.' + domain
-                        ) {
-                            excluded = true;
-                        }
-                    } else if (
-                        hostname === domain ||
-                        hostname.slice(-(domain.length + 1)) === '.' + domain
-                    ) {
-                        matched = true;
-                    }
-                }
-
-                if (!matched || excluded) continue;
+            // 今回は通常のCSS要素非表示ルールのみ対象
+            if (
+                line.indexOf('#?#') !== -1 ||
+                line.indexOf('#$#') !== -1 ||
+                line.indexOf('#%#') !== -1
+            ) {
+                continue;
             }
 
-            if (seen[selector]) continue;
+            var ruleIndex = line.indexOf('##');
 
-            seen[selector] = true;
-            count++;
+            if (ruleIndex === -1) continue;
+
+            var domainPart = line.substring(0, ruleIndex);
+            var selector = line.substring(ruleIndex + 2);
+
+            if (!selector || selector.length > 1500) continue;
+            if (!domainMatches(domainPart, hostname)) continue;
+
+            if (!seenRules[selector]) {
+                seenRules[selector] = true;
+                rules.push(selector);
+            }
+        }
+
+        var exceptionMap = {};
+
+        for (var e = 0; e < exceptions.length; e++) {
+            exceptionMap[exceptions[e]] = true;
+        }
+
+        var activeRules = [];
+
+        for (var r = 0; r < rules.length; r++) {
+            if (!exceptionMap[rules[r]]) {
+                activeRules.push(rules[r]);
+            }
         }
 
         return {
-            rules: count,
-            exceptions: exceptions
+            candidates: rules.length,
+            exceptions: exceptions.length,
+            active: activeRules
+        };
+    }
+
+    function validateSelectors(selectors) {
+        var valid = [];
+        var invalid = 0;
+        var checked = 0;
+        var limit = 100;
+
+        for (var i = 0; i < selectors.length; i++) {
+            if (checked >= limit) break;
+
+            checked++;
+
+            try {
+                document.querySelector(selectors[i]);
+                valid.push(selectors[i]);
+            } catch (e) {
+                invalid++;
+            }
+        }
+
+        return {
+            valid: valid,
+            invalid: invalid,
+            checked: checked
         };
     }
 
@@ -162,34 +225,77 @@
         result.textContent = 'EasyList取得中...';
 
         try {
-            var filterText = SLEX_httpGet(
+            var easyList = SLEX_httpGet(
                 'https://easylist.to/easylist/easylist.txt'
             );
 
-            if (
-                typeof filterText !== 'string' ||
-                filterText.length === 0
-            ) {
+            if (typeof easyList !== 'string' || !easyList.length) {
                 result.textContent = 'EasyList取得失敗';
                 return;
             }
 
-            result.textContent = 'CSSルール解析中...';
+            result.textContent = 'EasyPrivacy取得中...';
+
+            var easyPrivacy = SLEX_httpGet(
+                'https://easylist.to/easylist/easyprivacy.txt'
+            );
+
+            if (typeof easyPrivacy !== 'string') {
+                easyPrivacy = '';
+            }
 
             var hostname = location.hostname.toLowerCase();
 
-            var parsed = countCosmeticRules(
-                filterText,
-                hostname
+            result.textContent = 'サイト別ルール解析中...';
+
+            var listResult = parseFilter(easyList, hostname);
+            var privacyResult = parseFilter(easyPrivacy, hostname);
+
+            var combined = listResult.active.concat(
+                privacyResult.active
             );
 
-            result.innerHTML =
-                '対象ドメイン：' + hostname + '<br>' +
-                'EasyList：取得成功<br>' +
-                '取得文字数：' + filterText.length + '<br>' +
-                'CSSルール候補：' + parsed.rules + '<br>' +
-                '例外ルール：' + parsed.exceptions + '<br>' +
-                '<span style="color:#ffcc80;">※まだ広告には適用していません</span>';
+            var unique = [];
+            var seen = {};
+
+            for (var i = 0; i < combined.length; i++) {
+                if (!seen[combined[i]]) {
+                    seen[combined[i]] = true;
+                    unique.push(combined[i]);
+                }
+            }
+
+            var validation = validateSelectors(unique);
+
+            var output =
+                '対象サイト：' + hostname + '\n\n' +
+                '【EasyList】\n' +
+                '取得文字数：' + easyList.length + '\n' +
+                '対象ルール候補：' + listResult.candidates + '\n' +
+                '例外ルール：' + listResult.exceptions + '\n\n' +
+                '【EasyPrivacy】\n' +
+                '取得文字数：' + easyPrivacy.length + '\n' +
+                '対象ルール候補：' + privacyResult.candidates + '\n' +
+                '例外ルール：' + privacyResult.exceptions + '\n\n' +
+                '【統合結果】\n' +
+                '重複除外後：' + unique.length + '\n' +
+                '構文検証数：' + validation.checked + '\n' +
+                '構文エラー：' + validation.invalid + '\n' +
+                '構文確認済み：' + validation.valid.length + '\n\n' +
+                '【セレクタ例】\n';
+
+            var sampleCount = Math.min(validation.valid.length, 10);
+
+            for (var s = 0; s < sampleCount; s++) {
+                output += (s + 1) + '. ' +
+                    validation.valid[s] + '\n';
+            }
+
+            output +=
+                '\n※抽出・構文検証のみ実施\n' +
+                '※広告要素への適用は未実施';
+
+            result.textContent = output;
 
         } catch (e) {
             result.textContent = 'エラー：' + String(e);
