@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.11
-// @description SAB safe dynamic element handler on v1.4.10 base
+// @version     1.4.12
+// @description SAB shield recovery on v1.4.10 base
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -15,9 +15,6 @@
     var styleId = 'sab-applied-css-style';
     var filtersLoaded = false;
     var maxCssSelectors = 1500;
-    var hiddenCount = 0;
-    var observerStarted = false;
-    var scanTimer = null;
 
     function getCurrentHost() {
         try {
@@ -126,96 +123,6 @@
         }
     }
 
-    function updateHiddenCountText() {
-        try {
-            var el = document.getElementById('sab-hidden-count');
-            if (el) {
-                el.textContent = String(hiddenCount);
-            }
-        } catch (e) {
-            // 表示更新失敗時は無視
-        }
-    }
-
-    function applyCustomSiteRules() {
-        if (!isTargetDomain() || !document.body) {
-            return;
-        }
-
-        try {
-            var targets = document.querySelectorAll('ins.adsbygoogle, [data-ad-slot]');
-            var i;
-            var el;
-            var updated = false;
-
-            for (i = 0; i < targets.length; i++) {
-                el = targets[i];
-                if (!el || el.id === shieldId || el.id === panelId) {
-                    continue;
-                }
-                if (el.getAttribute('data-sab-done') === '1') {
-                    continue;
-                }
-                el.setAttribute('data-sab-done', '1');
-                if (el.style) {
-                    el.style.display = 'none';
-                }
-                hiddenCount++;
-                updated = true;
-            }
-
-            if (updated) {
-                updateHiddenCountText();
-            }
-        } catch (e) {
-            // 要素処理エラー時も継続
-        }
-    }
-
-    function scheduleSafeScan() {
-        if (!isTargetDomain()) return;
-        if (scanTimer) {
-            clearTimeout(scanTimer);
-        }
-        scanTimer = setTimeout(function () {
-            scanTimer = null;
-            applyCustomSiteRules();
-        }, 500);
-    }
-
-    function startSafeObserver() {
-        if (observerStarted || !isTargetDomain() || !document.body) {
-            return;
-        }
-
-        try {
-            if (typeof MutationObserver !== 'function') {
-                applyCustomSiteRules();
-                return;
-            }
-
-            var observer = new MutationObserver(function (mutations) {
-                var i;
-                for (i = 0; i < mutations.length; i++) {
-                    if (mutations[i].addedNodes && mutations[i].addedNodes.length > 0) {
-                        scheduleSafeScan();
-                        break;
-                    }
-                }
-            });
-
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-
-            observerStarted = true;
-            applyCustomSiteRules();
-        } catch (e) {
-            applyCustomSiteRules();
-        }
-    }
-
     function createPanel() {
         if (document.getElementById(panelId)) {
             return;
@@ -256,7 +163,7 @@
             '<div>ルール解析：<span id="sab-rule-stats">未解析</span></div>' +
             '<div>適用CSS：<span id="sab-applied-css">未適用</span></div>' +
             '<div>通信遮断数：0</div>' +
-            '<div>広告要素除去数：<span id="sab-hidden-count">0</span></div>' +
+            '<div>広告要素除去数：0</div>' +
             '<div style="margin-top:12px;text-align:right;"><span id="sab-close-button" style="display:inline-block;padding:5px 14px;background:#444;border-radius:6px;cursor:pointer;">閉じる</span></div>';
 
         document.body.appendChild(panel);
@@ -265,8 +172,6 @@
         if (domainEl) {
             domainEl.textContent = isTargetDomain() ? '対象（Game8/GameWith）' : '対象外';
         }
-
-        updateHiddenCountText();
 
         var closeButton = document.getElementById('sab-close-button');
 
@@ -479,7 +384,6 @@
 
     function initialize() {
         showShield();
-        startSafeObserver();
     }
 
     if (document.readyState === 'loading') {
