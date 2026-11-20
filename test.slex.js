@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.5.2
+// @version     1.5.3
 // @description SAB isolated cosmetic rule analysis
 // @include     *://*/*
 // @require api
@@ -15,14 +15,19 @@
     var panelId = 'sab-status-panel';
     var filtersLoaded = false;
 
+    // 追加：取得したフィルターを保持
     var easyListText = '';
     var easyPrivacyText = '';
 
     function createPanel() {
-        if (document.getElementById(panelId)) return;
+        if (document.getElementById(panelId)) {
+            return;
+        }
+
         if (!document.body) return;
 
         var panel = document.createElement('div');
+
         panel.id = panelId;
 
         panel.style.cssText = [
@@ -49,10 +54,14 @@
             '<div style="font-size:16px;font-weight:bold;margin-bottom:10px;">' +
                 '🛡 Simple AD Blocker' +
             '</div>' +
+
             '<div>状態：<span style="color:#4caf50;">UI動作中</span></div>' +
             '<div>EasyList：<span id="sab-easylist-status">未取得</span></div>' +
             '<div>EasyPrivacy：<span id="sab-privacy-status">未取得</span></div>' +
+            '<div>通信遮断数：0</div>' +
+            '<div>広告要素除去数：0</div>' +
             '<div>広告ルール候補数：<span id="sab-rule-count">未解析</span></div>' +
+
             '<div style="margin-top:12px;text-align:right;">' +
                 '<span id="sab-close-button" ' +
                 'style="display:inline-block;padding:5px 14px;' +
@@ -63,18 +72,19 @@
 
         document.body.appendChild(panel);
 
-        document.getElementById('sab-close-button')
-            .addEventListener('click', function () {
-                panel.style.display = 'none';
-            });
+        var closeButton = document.getElementById('sab-close-button');
+
+        closeButton.addEventListener('click', function () {
+            panel.style.display = 'none';
+        });
     }
 
-    // 解析処理はUIと独立
+    // 追加：広告ルールの候補数を解析
     function analyzeCosmeticRules() {
         try {
             var hostname = location.hostname.toLowerCase();
             var sources = [easyListText, easyPrivacyText];
-            var unique = Object.create(null);
+            var found = Object.create(null);
             var count = 0;
 
             for (var s = 0; s < sources.length; s++) {
@@ -88,7 +98,10 @@
                     if (!line || line.charAt(0) === '!') continue;
 
                     var index = line.indexOf('##');
-                    if (index < 0 || line.indexOf('#@#') >= 0) continue;
+
+                    if (index < 0 || line.indexOf('#@#') >= 0) {
+                        continue;
+                    }
 
                     var domainPart = line.substring(0, index);
                     var selector = line.substring(index + 2).trim();
@@ -102,21 +115,21 @@
 
                         for (var d = 0; d < domains.length; d++) {
                             var domain = domains[d].trim();
+                            var isExcluded = domain.charAt(0) === '~';
 
-                            if (domain.charAt(0) === '~') {
+                            if (isExcluded) {
                                 domain = domain.substring(1);
+                            }
 
-                                if (
-                                    hostname === domain ||
-                                    hostname.endsWith('.' + domain)
-                                ) {
-                                    excluded = true;
-                                }
-                            } else if (
+                            if (
                                 hostname === domain ||
                                 hostname.endsWith('.' + domain)
                             ) {
-                                matched = true;
+                                if (isExcluded) {
+                                    excluded = true;
+                                } else {
+                                    matched = true;
+                                }
                             }
                         }
 
@@ -138,9 +151,9 @@
                         continue;
                     }
 
-                    if (unique[selector]) continue;
+                    if (found[selector]) continue;
 
-                    unique[selector] = true;
+                    found[selector] = true;
                     count++;
 
                     if (count >= 1500) break;
@@ -155,7 +168,7 @@
                 output.textContent = String(count);
             }
         } catch (e) {
-            // 解析失敗時もUIには影響させない
+            // 解析失敗はUIに影響させない
         }
     }
 
@@ -212,15 +225,11 @@
             privacyStatus.textContent = 'エラー';
         }
 
-        // 解析エラーを外側に伝播させない
-        try {
-            analyzeCosmeticRules();
-        } catch (e) {
-            // 何もしない
-        }
+        // 追加：解析だけ実行。広告表示には手を加えない
+        analyzeCosmeticRules();
     }
 
-    // v1.4.0の盾表示処理
+    // 以下、v1.4.0の盾表示処理を維持
     function showShield() {
         if (!document.body) return;
 
