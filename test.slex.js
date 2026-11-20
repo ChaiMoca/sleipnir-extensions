@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.2
+// @version     1.4.3
 // @description SAB UI, filter download, and basic rule count test
 // @include     *://*/*
 // @require api
@@ -77,12 +77,25 @@
             };
         }
 
-        var lines = text.split(/\r?\n/);
-        var i;
+        var start = 0;
+        var lineEnd;
         var line;
 
-        for (i = 0; i < lines.length; i++) {
-            line = lines[i].trim();
+        while (start <= text.length) {
+            lineEnd = text.indexOf('\n', start);
+            if (lineEnd === -1) {
+                line = text.slice(start);
+                start = text.length + 1;
+            } else {
+                line = text.slice(start, lineEnd);
+                start = lineEnd + 1;
+            }
+
+            if (line.charAt(line.length - 1) === '\r') {
+                line = line.slice(0, -1);
+            }
+
+            line = line.replace(/^\s+|\s+$/g, '');
 
             if (!line || line.charAt(0) === '!') {
                 continue;
