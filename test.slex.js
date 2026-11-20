@@ -1,9 +1,9 @@
 
 // ==UserScript==
-// @name        Simple AD Blocker
+// @name        SAB Parser Test
 // @namespace   custom.sleipnir
-// @version     1.5.5
-// @description SAB filter storage and cosmetic rule parser
+// @version     1.0.0
+// @description Independent EasyList cosmetic rule parser test
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -11,151 +11,95 @@
 (function () {
     'use strict';
 
-    var shieldId = 'sab-test-button';
-    var panelId = 'sab-status-panel';
-    var filtersLoaded = false;
+    var buttonId = 'sab-parser-test-button';
+    var panelId = 'sab-parser-test-panel';
 
-    // 追加：取得したフィルターの保存領域
-    var easyListText = '';
-    var easyPrivacyText = '';
-
-    function createPanel() {
-        if (document.getElementById(panelId)) {
-            return;
-        }
-
+    function createUI() {
         if (!document.body) return;
+        if (document.getElementById(buttonId)) return;
+
+        var button = document.createElement('div');
+        button.id = buttonId;
+        button.textContent = 'PARSER TEST';
+
+        button.style.cssText =
+            'position:fixed;' +
+            'left:15px;' +
+            'top:30px;' +
+            'z-index:2147483647;' +
+            'background:#673ab7;' +
+            'color:white;' +
+            'padding:12px;' +
+            'border-radius:8px;' +
+            'font-size:14px;' +
+            'font-weight:bold;' +
+            'cursor:pointer;';
+
+        button.addEventListener('click', function () {
+            runTest();
+        });
+
+        document.body.appendChild(button);
 
         var panel = document.createElement('div');
-
         panel.id = panelId;
 
-        panel.style.cssText = [
-            'position:fixed',
-            'right:20px',
-            'bottom:95px',
-            'z-index:2147483647',
-            'width:240px',
-            'padding:15px',
-            'background:#202124',
-            'color:white',
-            'border:1px solid #555',
-            'border-radius:12px',
-            'box-shadow:0 3px 12px rgba(0,0,0,0.5)',
-            'font-size:14px',
-            'line-height:1.7',
-            'font-family:sans-serif',
-            'display:none',
-            'pointer-events:auto',
-            'box-sizing:border-box'
-        ].join(';');
+        panel.style.cssText =
+            'position:fixed;' +
+            'left:15px;' +
+            'top:85px;' +
+            'z-index:2147483647;' +
+            'width:260px;' +
+            'max-height:60vh;' +
+            'overflow:auto;' +
+            'padding:12px;' +
+            'background:#202124;' +
+            'color:white;' +
+            'border:1px solid #777;' +
+            'border-radius:8px;' +
+            'font-size:13px;' +
+            'line-height:1.7;' +
+            'font-family:sans-serif;' +
+            'display:none;' +
+            'box-sizing:border-box;';
 
         panel.innerHTML =
-            '<div style="font-size:16px;font-weight:bold;margin-bottom:10px;">' +
-                '🛡 Simple AD Blocker' +
+            '<div style="font-weight:bold;margin-bottom:8px;">' +
+            'SAB Parser Test' +
             '</div>' +
-
-            '<div>状態：<span style="color:#4caf50;">UI動作中</span></div>' +
-            '<div>EasyList：<span id="sab-easylist-status">未取得</span></div>' +
-            '<div>EasyPrivacy：<span id="sab-privacy-status">未取得</span></div>' +
-            '<div>通信遮断数：0</div>' +
-            '<div>広告要素除去数：0</div>' +
-
-            '<div style="margin-top:12px;text-align:right;">' +
-                '<span id="sab-close-button" ' +
-                'style="display:inline-block;padding:5px 14px;' +
-                'background:#444;border-radius:6px;cursor:pointer;">' +
-                '閉じる' +
-                '</span>' +
-            '</div>';
+            '<div id="sab-parser-result">待機中</div>' +
+            '<div style="margin-top:10px;text-align:right;">' +
+            '<span id="sab-parser-close" ' +
+            'style="padding:5px 12px;background:#444;border-radius:5px;">' +
+            '閉じる</span></div>';
 
         document.body.appendChild(panel);
 
-        var closeButton = document.getElementById('sab-close-button');
-
-        closeButton.addEventListener('click', function () {
-            panel.style.display = 'none';
-        });
+        document.getElementById('sab-parser-close')
+            .addEventListener('click', function () {
+                panel.style.display = 'none';
+            });
     }
 
-    function loadFilters() {
-        if (filtersLoaded) return;
-
-        filtersLoaded = true;
-
-        var easyListStatus =
-            document.getElementById('sab-easylist-status');
-
-        var privacyStatus =
-            document.getElementById('sab-privacy-status');
-
-        if (!easyListStatus || !privacyStatus) return;
-
-        easyListStatus.textContent = '取得中...';
-        privacyStatus.textContent = '取得中...';
-
-        try {
-            var easyList = SLEX_httpGet(
-                'https://easylist.to/easylist/easylist.txt'
-            );
-
-            if (typeof easyList === 'string' && easyList.length > 0) {
-                easyListText = easyList;
-
-                easyListStatus.textContent =
-                    '取得成功（' + easyList.length + '文字）';
-            } else {
-                easyListStatus.textContent = '取得失敗';
-            }
-        } catch (e) {
-            easyListStatus.textContent = 'エラー';
-        }
-
-        try {
-            var easyPrivacy = SLEX_httpGet(
-                'https://easylist.to/easylist/easyprivacy.txt'
-            );
-
-            if (
-                typeof easyPrivacy === 'string' &&
-                easyPrivacy.length > 0
-            ) {
-                easyPrivacyText = easyPrivacy;
-
-                privacyStatus.textContent =
-                    '取得成功（' + easyPrivacy.length + '文字）';
-            } else {
-                privacyStatus.textContent = '取得失敗';
-            }
-        } catch (e) {
-            privacyStatus.textContent = 'エラー';
-        }
-    }
-
-    // 追加：CSS要素非表示ルールの抽出
-    // 呼び出しはまだ行わず、解析機能だけを定義する
-    function analyzeCosmeticRules(filterText, hostname) {
-        var result = [];
+    function countCosmeticRules(text, hostname) {
+        var lines = text.split(/\r?\n/);
         var seen = {};
+        var count = 0;
+        var exceptions = 0;
 
-        if (typeof filterText !== 'string' || !filterText) {
-            return result;
-        }
-
-        hostname = (hostname || '').toLowerCase();
-
-        var lines = filterText.split(/\r?\n/);
+        hostname = hostname.toLowerCase();
 
         for (var i = 0; i < lines.length; i++) {
             var line = lines[i].replace(/^\s+|\s+$/g, '');
 
             if (!line || line.charAt(0) === '!') continue;
 
-            // 例外ルール・拡張構文は今回の抽出対象外
-            if (line.indexOf('#@#') !== -1) continue;
-            if (line.indexOf('#?#') !== -1) continue;
-            if (line.indexOf('#$#') !== -1) continue;
-            if (line.indexOf('#%#') !== -1) continue;
+            var exceptionIndex = line.indexOf('#@#');
+
+            if (exceptionIndex !== -1) {
+                exceptions++;
+                continue;
+            }
 
             var separator = line.indexOf('##');
 
@@ -164,9 +108,8 @@
             var domainPart = line.substring(0, separator);
             var selector = line.substring(separator + 2);
 
-            if (!selector || selector.length > 1000) continue;
+            if (!selector) continue;
 
-            // 対象ドメインの確認
             if (domainPart) {
                 var domains = domainPart.toLowerCase().split(',');
                 var matched = false;
@@ -186,11 +129,7 @@
                         ) {
                             excluded = true;
                         }
-
-                        continue;
-                    }
-
-                    if (
+                    } else if (
                         hostname === domain ||
                         hostname.slice(-(domain.length + 1)) === '.' + domain
                     ) {
@@ -198,79 +137,69 @@
                     }
                 }
 
-                if (excluded || !matched) continue;
+                if (!matched || excluded) continue;
             }
 
             if (seen[selector]) continue;
 
             seen[selector] = true;
-            result.push(selector);
-
-            if (result.length >= 1500) break;
+            count++;
         }
 
-        return result;
+        return {
+            rules: count,
+            exceptions: exceptions
+        };
     }
 
-    function showShield() {
-        if (!document.body) return;
+    function runTest() {
+        var panel = document.getElementById(panelId);
+        var result = document.getElementById('sab-parser-result');
 
-        if (document.getElementById(shieldId)) {
-            return;
-        }
+        if (!panel || !result) return;
 
-        var button = document.createElement('div');
+        panel.style.display = 'block';
+        result.textContent = 'EasyList取得中...';
 
-        button.id = shieldId;
-        button.textContent = '🛡';
+        try {
+            var filterText = SLEX_httpGet(
+                'https://easylist.to/easylist/easylist.txt'
+            );
 
-        button.style.cssText = [
-            'position:fixed',
-            'right:20px',
-            'bottom:30px',
-            'z-index:2147483647',
-            'width:55px',
-            'height:55px',
-            'border-radius:50%',
-            'background:#1976d2',
-            'color:white',
-            'font-size:26px',
-            'font-weight:bold',
-            'display:flex',
-            'align-items:center',
-            'justify-content:center',
-            'box-shadow:0 2px 8px #000',
-            'pointer-events:auto',
-            'cursor:pointer'
-        ].join(';');
-
-        button.addEventListener('click', function () {
-            createPanel();
-
-            var panel = document.getElementById(panelId);
-
-            if (panel) {
-                if (panel.style.display === 'none') {
-                    panel.style.display = 'block';
-                    loadFilters();
-                } else {
-                    panel.style.display = 'none';
-                }
+            if (
+                typeof filterText !== 'string' ||
+                filterText.length === 0
+            ) {
+                result.textContent = 'EasyList取得失敗';
+                return;
             }
-        });
 
-        document.body.appendChild(button);
+            result.textContent = 'CSSルール解析中...';
+
+            var parsed = countCosmeticRules(
+                filterText,
+                location.hostname
+            );
+
+            result.innerHTML =
+                'サイト：' + location.hostname + '<br>' +
+                'EasyList：取得成功<br>' +
+                '取得文字数：' + filterText.length + '<br>' +
+                'CSSルール候補：' + parsed.rules + '<br>' +
+                '例外ルール：' + parsed.exceptions + '<br>' +
+                '<span style="color:#ffcc80;">※まだ広告には適用していません</span>';
+
+        } catch (e) {
+            result.textContent = 'エラー：' + String(e);
+        }
     }
 
     function initialize() {
-        showShield();
+        createUI();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener(
-            'DOMContentLoaded',
-            initialize
-        );
+        document.addEventListener('DOMContentLoaded', initialize);
     } else {
         initialize();
     }
