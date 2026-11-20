@@ -1,8 +1,9 @@
+
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.5.4
-// @description SAB isolated rule analysis preparation
+// @version     1.5.5
+// @description SAB filter storage and cosmetic rule parser
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -14,7 +15,7 @@
     var panelId = 'sab-status-panel';
     var filtersLoaded = false;
 
-    // 追加：フィルター保存領域
+    // 追加：取得したフィルターの保存領域
     var easyListText = '';
     var easyPrivacyText = '';
 
@@ -131,62 +132,84 @@
         }
     }
 
-    // 追加：独立した解析関数（今回は呼び出さない）
-    function analyzeCosmeticRules() {
-        var sources = [easyListText, easyPrivacyText];
-        var hostname = location.hostname.toLowerCase();
-        var found = Object.create(null);
-        var count = 0;
+    // 追加：CSS要素非表示ルールの抽出
+    // 呼び出しはまだ行わず、解析機能だけを定義する
+    function analyzeCosmeticRules(filterText, hostname) {
+        var result = [];
+        var seen = {};
 
-        for (var s = 0; s < sources.length; s++) {
-            if (!sources[s]) continue;
+        if (typeof filterText !== 'string' || !filterText) {
+            return result;
+        }
 
-            var lines = sources[s].split(/\r?\n/);
+        hostname = (hostname || '').toLowerCase();
 
-            for (var i = 0; i < lines.length; i++) {
-                var line = lines[i].trim();
+        var lines = filterText.split(/\r?\n/);
 
-                if (!line || line.charAt(0) === '!') continue;
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i].replace(/^\s+|\s+$/g, '');
 
-                var index = line.indexOf('##');
-                if (index < 0) continue;
+            if (!line || line.charAt(0) === '!') continue;
 
-                var domainPart = line.substring(0, index);
-                var selector = line.substring(index + 2).trim();
+            // 例外ルール・拡張構文は今回の抽出対象外
+            if (line.indexOf('#@#') !== -1) continue;
+            if (line.indexOf('#?#') !== -1) continue;
+            if (line.indexOf('#$#') !== -1) continue;
+            if (line.indexOf('#%#') !== -1) continue;
 
-                if (!selector || selector.length > 1000) continue;
+            var separator = line.indexOf('##');
 
-                if (domainPart) {
-                    var domains = domainPart.toLowerCase().split(',');
-                    var matched = false;
+            if (separator === -1) continue;
 
-                    for (var d = 0; d < domains.length; d++) {
-                        var domain = domains[d].trim();
+            var domainPart = line.substring(0, separator);
+            var selector = line.substring(separator + 2);
 
-                        if (domain.charAt(0) === '~') continue;
+            if (!selector || selector.length > 1000) continue;
+
+            // 対象ドメインの確認
+            if (domainPart) {
+                var domains = domainPart.toLowerCase().split(',');
+                var matched = false;
+                var excluded = false;
+
+                for (var d = 0; d < domains.length; d++) {
+                    var domain = domains[d].replace(/^\s+|\s+$/g, '');
+
+                    if (!domain) continue;
+
+                    if (domain.charAt(0) === '~') {
+                        domain = domain.substring(1);
 
                         if (
                             hostname === domain ||
-                            hostname.endsWith('.' + domain)
+                            hostname.slice(-(domain.length + 1)) === '.' + domain
                         ) {
-                            matched = true;
-                            break;
+                            excluded = true;
                         }
+
+                        continue;
                     }
 
-                    if (!matched) continue;
+                    if (
+                        hostname === domain ||
+                        hostname.slice(-(domain.length + 1)) === '.' + domain
+                    ) {
+                        matched = true;
+                    }
                 }
 
-                if (found[selector]) continue;
-
-                found[selector] = true;
-                count++;
-
-                if (count >= 1500) return count;
+                if (excluded || !matched) continue;
             }
+
+            if (seen[selector]) continue;
+
+            seen[selector] = true;
+            result.push(selector);
+
+            if (result.length >= 1500) break;
         }
 
-        return count;
+        return result;
     }
 
     function showShield() {
