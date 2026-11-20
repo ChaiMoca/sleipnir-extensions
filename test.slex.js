@@ -2,8 +2,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.5.3
-// @description SAB isolated cosmetic rule analysis
+// @version     1.5.4
+// @description SAB isolated rule analysis preparation
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -15,7 +15,7 @@
     var panelId = 'sab-status-panel';
     var filtersLoaded = false;
 
-    // 追加：取得したフィルターを保持
+    // 追加：フィルター保存領域
     var easyListText = '';
     var easyPrivacyText = '';
 
@@ -60,7 +60,6 @@
             '<div>EasyPrivacy：<span id="sab-privacy-status">未取得</span></div>' +
             '<div>通信遮断数：0</div>' +
             '<div>広告要素除去数：0</div>' +
-            '<div>広告ルール候補数：<span id="sab-rule-count">未解析</span></div>' +
 
             '<div style="margin-top:12px;text-align:right;">' +
                 '<span id="sab-close-button" ' +
@@ -77,99 +76,6 @@
         closeButton.addEventListener('click', function () {
             panel.style.display = 'none';
         });
-    }
-
-    // 追加：広告ルールの候補数を解析
-    function analyzeCosmeticRules() {
-        try {
-            var hostname = location.hostname.toLowerCase();
-            var sources = [easyListText, easyPrivacyText];
-            var found = Object.create(null);
-            var count = 0;
-
-            for (var s = 0; s < sources.length; s++) {
-                if (!sources[s]) continue;
-
-                var lines = sources[s].split(/\r?\n/);
-
-                for (var i = 0; i < lines.length; i++) {
-                    var line = lines[i].trim();
-
-                    if (!line || line.charAt(0) === '!') continue;
-
-                    var index = line.indexOf('##');
-
-                    if (index < 0 || line.indexOf('#@#') >= 0) {
-                        continue;
-                    }
-
-                    var domainPart = line.substring(0, index);
-                    var selector = line.substring(index + 2).trim();
-
-                    if (!selector || selector.length > 1000) continue;
-
-                    if (domainPart) {
-                        var domains = domainPart.toLowerCase().split(',');
-                        var matched = false;
-                        var excluded = false;
-
-                        for (var d = 0; d < domains.length; d++) {
-                            var domain = domains[d].trim();
-                            var isExcluded = domain.charAt(0) === '~';
-
-                            if (isExcluded) {
-                                domain = domain.substring(1);
-                            }
-
-                            if (
-                                hostname === domain ||
-                                hostname.endsWith('.' + domain)
-                            ) {
-                                if (isExcluded) {
-                                    excluded = true;
-                                } else {
-                                    matched = true;
-                                }
-                            }
-                        }
-
-                        if (excluded || !matched) continue;
-                    }
-
-                    if (
-                        /[{};\r\n]/.test(selector) ||
-                        selector.indexOf(':-abp-') >= 0 ||
-                        selector.indexOf(':has-text(') >= 0 ||
-                        selector.indexOf(':xpath(') >= 0
-                    ) {
-                        continue;
-                    }
-
-                    try {
-                        document.querySelector(selector);
-                    } catch (e) {
-                        continue;
-                    }
-
-                    if (found[selector]) continue;
-
-                    found[selector] = true;
-                    count++;
-
-                    if (count >= 1500) break;
-                }
-
-                if (count >= 1500) break;
-            }
-
-            var output = document.getElementById('sab-rule-count');
-
-            if (output) {
-                output.textContent = String(count);
-            }
-        } catch (e) {
-            // 解析失敗はUIに影響させない
-        }
     }
 
     function loadFilters() {
@@ -224,12 +130,66 @@
         } catch (e) {
             privacyStatus.textContent = 'エラー';
         }
-
-        // 追加：解析だけ実行。広告表示には手を加えない
-        analyzeCosmeticRules();
     }
 
-    // 以下、v1.4.0の盾表示処理を維持
+    // 追加：独立した解析関数（今回は呼び出さない）
+    function analyzeCosmeticRules() {
+        var sources = [easyListText, easyPrivacyText];
+        var hostname = location.hostname.toLowerCase();
+        var found = Object.create(null);
+        var count = 0;
+
+        for (var s = 0; s < sources.length; s++) {
+            if (!sources[s]) continue;
+
+            var lines = sources[s].split(/\r?\n/);
+
+            for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+
+                if (!line || line.charAt(0) === '!') continue;
+
+                var index = line.indexOf('##');
+                if (index < 0) continue;
+
+                var domainPart = line.substring(0, index);
+                var selector = line.substring(index + 2).trim();
+
+                if (!selector || selector.length > 1000) continue;
+
+                if (domainPart) {
+                    var domains = domainPart.toLowerCase().split(',');
+                    var matched = false;
+
+                    for (var d = 0; d < domains.length; d++) {
+                        var domain = domains[d].trim();
+
+                        if (domain.charAt(0) === '~') continue;
+
+                        if (
+                            hostname === domain ||
+                            hostname.endsWith('.' + domain)
+                        ) {
+                            matched = true;
+                            break;
+                        }
+                    }
+
+                    if (!matched) continue;
+                }
+
+                if (found[selector]) continue;
+
+                found[selector] = true;
+                count++;
+
+                if (count >= 1500) return count;
+            }
+        }
+
+        return count;
+    }
+
     function showShield() {
         if (!document.body) return;
 
