@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.6
-// @description SAB safe CSS rule injection test
+// @version     1.4.7
+// @description SAB domain-specific CSS rules and exception filtering
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -14,17 +14,21 @@
     var panelId = 'sab-status-panel';
     var styleId = 'sab-applied-css-style';
     var filtersLoaded = false;
-    var maxCssSelectors = 1000;
+    var maxCssSelectors = 1500;
 
-    function isTargetDomain() {
-        var host = '';
+    function getCurrentHost() {
         try {
             if (typeof location !== 'undefined' && location && location.hostname) {
-                host = String(location.hostname).toLowerCase();
+                return String(location.hostname).toLowerCase();
             }
         } catch (e) {
-            host = '';
+            return '';
         }
+        return '';
+    }
+
+    function isTargetDomain() {
+        var host = getCurrentHost();
         if (!host) return false;
         return (
             host === 'gamewith.jp' ||
@@ -32,6 +36,31 @@
             host === 'game8.jp' ||
             host.indexOf('.game8.jp') !== -1
         );
+    }
+
+    function matchSingleDomain(host, targetDomain) {
+        if (!host || !targetDomain) return false;
+        var d = targetDomain.replace(/^\s+|\s+$/g, '').toLowerCase();
+        if (!d || d.charAt(0) === '~') return false;
+        return host === d || host.slice(-(d.length + 1)) === '.' + d;
+    }
+
+    function isDomainMatchedForCurrentHost(domainPart) {
+        if (!domainPart) return false;
+        var host = getCurrentHost();
+        if (!host) return false;
+
+        var parts = domainPart.split(',');
+        var i;
+        for (i = 0; i < parts.length; i++) {
+            if (parts[i].replace(/^\s+|\s+$/g, '').charAt(0) === '~') {
+                return false;
+            }
+            if (matchSingleDomain(host, parts[i])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function isSafeSelector(sel) {
@@ -52,18 +81,18 @@
         return true;
     }
 
-    function applyCssRules(selectors) {
+    function applyCssRules(selectors, exceptions) {
         if (!isTargetDomain()) {
-            return 0;
+            return { applied: 0, skippedByException: 0 };
         }
         if (!selectors || !selectors.length) {
-            return 0;
+            return { applied: 0, skippedByException: 0 };
         }
 
         try {
             var parent = document.head || document.documentElement || document.body;
             if (!parent) {
-                return 0;
+                return { applied: 0, skippedByException: 0 };
             }
 
             var oldStyle = document.getElementById(styleId);
@@ -71,8 +100,17 @@
                 oldStyle.parentNode.removeChild(oldStyle);
             }
 
+            var exceptionMap = {};
+            var j;
+            if (exceptions && exceptions.length) {
+                for (j = 0; j < exceptions.length; j++) {
+                    exceptionMap[exceptions[j]] = true;
+                }
+            }
+
             var rules = [];
             var applied = 0;
+            var skippedByException = 0;
             var i;
             var sel;
 
@@ -81,12 +119,16 @@
                 if (!isSafeSelector(sel)) {
                     continue;
                 }
+                if (exceptionMap[sel]) {
+                    skippedByException++;
+                    continue;
+                }
                 rules.push(sel + '{display:none !important;visibility:hidden !important;}');
                 applied++;
             }
 
             if (rules.length === 0) {
-                return 0;
+                return { applied: 0, skippedByException: skippedByException };
             }
 
             var styleEl = document.createElement('style');
@@ -95,9 +137,9 @@
             styleEl.textContent = rules.join('\n');
             parent.appendChild(styleEl);
 
-            return applied;
+            return { applied: applied, skippedByException: skippedByException };
         } catch (e) {
-            return 0;
+            return { applied: 0, skippedByException: 0 };
         }
     }
 
@@ -164,12 +206,14 @@
         var cssCount = 0;
         var exceptionCount = 0;
         var selectors = [];
+        var exceptions = [];
 
         if (typeof text !== 'string' || text.length === 0) {
             return {
                 cssCount: 0,
                 exceptionCount: 0,
-                selectors: selectors
+                selectors: selectors,
+                exceptions: exceptions
             };
         }
 
@@ -202,13 +246,19 @@
 
             if (line.indexOf('#@#') !== -1) {
                 exceptionCount++;
+                markerIdx = line.indexOf('#@#');
+                domainPart = line.slice(0, markerIdx);
+                selectorPart = line.slice(markerIdx + 3).replace(/^\s+|\s+$/g, '');
+                if (selectorPart && (!domainPart || isDomainMatchedForCurrentHost(domainPart))) {
+                    exceptions.push(selectorPart);
+                }
             } else if (line.indexOf('##') !== -1) {
                 cssCount++;
                 if (selectors.length < maxCssSelectors) {
                     markerIdx = line.indexOf('##');
                     domainPart = line.slice(0, markerIdx);
                     selectorPart = line.slice(markerIdx + 2).replace(/^\s+|\s+$/g, '');
-                    if (!domainPart && selectorPart) {
+                    if (selectorPart && (!domainPart || isDomainMatchedForCurrentHost(domainPart))) {
                         selectors.push(selectorPart);
                     }
                 }
@@ -218,7 +268,8 @@
         return {
             cssCount: cssCount,
             exceptionCount: exceptionCount,
-            selectors: selectors
+            selectors: selectors,
+            exceptions: exceptions
         };
     }
 
@@ -265,10 +316,10 @@
                         'CSS ' + parsed.cssCount + ' / 例外 ' + parsed.exceptionCount;
                 }
 
-                var appliedCount = applyCssRules(parsed.selectors);
+                var result = applyCssRules(parsed.selectors, parsed.exceptions);
                 if (appliedCssEl) {
                     appliedCssEl.textContent = isTargetDomain()
-                        ? (appliedCount + '件')
+                        ? (result.applied + '件（除外' + result.skippedByException + '）')
                         : '対象外';
                 }
             } else {
@@ -341,38 +392,4 @@
             'cursor:pointer'
         ].join(';');
 
-        button.addEventListener('click', function () {
-            createPanel();
-
-            var panel = document.getElementById(panelId);
-
-            if (panel) {
-                if (panel.style.display === 'none') {
-                    panel.style.display = 'block';
-                    loadFilters();
-                } else {
-                    panel.style.display = 'none';
-                }
-            }
-        });
-
-        document.body.appendChild(button);
-    }
-
-    function initialize() {
-        showShield();
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener(
-            'DOMContentLoaded',
-            initialize
-        );
-    } else {
-        initialize();
-    }
-
-    setTimeout(initialize, 1000);
-    setTimeout(initialize, 3000);
-
-})();
+        button.addEventListener('click',
