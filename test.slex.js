@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.12
-// @description SAB shield recovery on v1.4.10 base
+// @version     1.4.13
+// @description SAB Game8 and GameWith ad/PR CSS rules on v1.4.12 base
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -13,8 +13,10 @@
     var shieldId = 'sab-test-button';
     var panelId = 'sab-status-panel';
     var styleId = 'sab-applied-css-style';
+    var siteStyleId = 'sab-site-css-style';
     var filtersLoaded = false;
     var maxCssSelectors = 1500;
+    var siteRuleCount = 0;
 
     function getCurrentHost() {
         try {
@@ -123,6 +125,69 @@
         }
     }
 
+    function updateHiddenCountDisplay() {
+        try {
+            var el = document.getElementById('sab-hidden-count');
+            if (el) {
+                el.textContent = String(siteRuleCount);
+            }
+        } catch (e) {
+            // 表示更新エラー時は無視
+        }
+    }
+
+    function applySiteSpecificCss() {
+        if (!isTargetDomain()) {
+            return;
+        }
+
+        try {
+            var parent = document.head || document.documentElement || document.body;
+            if (!parent) {
+                return;
+            }
+
+            if (document.getElementById(siteStyleId)) {
+                updateHiddenCountDisplay();
+                return;
+            }
+
+            // Game8・GameWith向けに誤爆を抑えつつ広告/PR枠を隠すセレクタ群
+            var siteSelectors = [
+                'ins.adsbygoogle',
+                '[data-ad-slot]',
+                '[data-google-query-id]',
+                '[class*="ad-banner"]',
+                '[class*="ad_banner"]',
+                '[class*="ad-枠"]',
+                '[class*="pr-banner"]',
+                '[class*="pr_banner"]',
+                '[class*="sponsored"]',
+                '[data-pr]'
+            ];
+
+            var cssLines = [];
+            var count = 0;
+            var i;
+
+            for (i = 0; i < siteSelectors.length; i++) {
+                cssLines.push(siteSelectors[i] + '{display:none !important;}');
+                count++;
+            }
+
+            var styleEl = document.createElement('style');
+            styleEl.id = siteStyleId;
+            styleEl.type = 'text/css';
+            styleEl.textContent = cssLines.join('\n');
+            parent.appendChild(styleEl);
+
+            siteRuleCount = count;
+            updateHiddenCountDisplay();
+        } catch (e) {
+            // サイト別CSS注入エラー時もUIや既存処理を維持
+        }
+    }
+
     function createPanel() {
         if (document.getElementById(panelId)) {
             return;
@@ -163,7 +228,7 @@
             '<div>ルール解析：<span id="sab-rule-stats">未解析</span></div>' +
             '<div>適用CSS：<span id="sab-applied-css">未適用</span></div>' +
             '<div>通信遮断数：0</div>' +
-            '<div>広告要素除去数：0</div>' +
+            '<div>広告要素除去数：<span id="sab-hidden-count">0</span></div>' +
             '<div style="margin-top:12px;text-align:right;"><span id="sab-close-button" style="display:inline-block;padding:5px 14px;background:#444;border-radius:6px;cursor:pointer;">閉じる</span></div>';
 
         document.body.appendChild(panel);
@@ -172,6 +237,8 @@
         if (domainEl) {
             domainEl.textContent = isTargetDomain() ? '対象（Game8/GameWith）' : '対象外';
         }
+
+        updateHiddenCountDisplay();
 
         var closeButton = document.getElementById('sab-close-button');
 
@@ -384,6 +451,7 @@
 
     function initialize() {
         showShield();
+        applySiteSpecificCss();
     }
 
     if (document.readyState === 'loading') {
