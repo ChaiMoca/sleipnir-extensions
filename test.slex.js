@@ -1,8 +1,9 @@
+
 // ==UserScript==
-// @name        Simple AD Blocker
+// @name        SAB Observer Custom Test
 // @namespace   custom.sleipnir
-// @version     1.4.16
-// @description SAB minimal site selectors merged into applyCssRules
+// @version     1.0.2
+// @description Observer integration test
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -10,408 +11,110 @@
 (function () {
     'use strict';
 
-    var shieldId = 'sab-test-button';
-    var panelId = 'sab-status-panel';
-    var styleId = 'sab-applied-css-style';
-    var filtersLoaded = false;
-    var maxCssSelectors = 1500;
+    var boxId = 'sab-observer-test-box';
+    var detected = 0;
 
-    function getCurrentHost() {
-        try {
-            if (typeof location !== 'undefined' && location && location.hostname) {
-                return String(location.hostname).toLowerCase();
-            }
-        } catch (e) {
-            return '';
-        }
-        return '';
-    }
+    var selectors = [
+        'ins.adsbygoogle',
+        '[data-ad-slot]',
+        '.ad-banner',
+        '.ad_banner',
+        '.pr-banner',
+        '.pr_banner',
+        '.sponsored',
+        '.ad-box'
+    ];
 
-    function isTargetDomain() {
-        var host = getCurrentHost();
-        if (!host) return false;
-        return (
-            host === 'gamewith.jp' ||
-            host.indexOf('.gamewith.jp') !== -1 ||
-            host === 'game8.jp' ||
-            host.indexOf('.game8.jp') !== -1
-        );
-    }
-
-    function getSiteSpecificSelectors() {
-        if (!isTargetDomain()) {
-            return [];
-        }
-        return [
-            'ins.adsbygoogle',
-            '[data-ad-slot]',
-            '.ad-banner',
-            '.ad_banner',
-            '.pr-banner',
-            '.pr_banner',
-            '.sponsored'
-        ];
-    }
-
-    function isDomainMatchedSimple(domainPart, host) {
-        if (!domainPart || !host) return false;
-        if (domainPart.indexOf('~') !== -1) return false;
-
-        var parts = domainPart.split(',');
+    function countTargets() {
+        var total = 0;
         var i;
-        var d;
 
-        for (i = 0; i < parts.length; i++) {
-            d = parts[i].replace(/^\s+|\s+$/g, '').toLowerCase();
-            if (!d) continue;
-            if (host === d || host.indexOf('.' + d) !== -1) {
-                return true;
+        for (i = 0; i < selectors.length; i++) {
+            try {
+                total += document.querySelectorAll(selectors[i]).length;
+            } catch (e) {
             }
         }
-        return false;
+
+        return total;
     }
 
-    function isSafeSelector(sel) {
-        if (!sel || typeof sel !== 'string') return false;
-        if (sel.length === 0 || sel.length > 100) return false;
-        if (
-            sel.indexOf(':-abp-') !== -1 ||
-            sel.indexOf(':has(') !== -1 ||
-            sel.indexOf(':contains(') !== -1 ||
-            sel.indexOf(':matches-css(') !== -1 ||
-            sel.indexOf('{') !== -1 ||
-            sel.indexOf('}') !== -1 ||
-            sel.indexOf(';') !== -1 ||
-            sel.indexOf('expression(') !== -1
-        ) {
-            return false;
-        }
-        return true;
+    function showResult(message) {
+        var box = document.getElementById(boxId);
+        if (!box) return;
+
+        box.textContent =
+            'SAB Observer Test\n' +
+            'Observer: ' + message + '\n' +
+            'Detected: ' + detected + '\n' +
+            'Current matches: ' + countTargets();
     }
 
-    function applyCssRules(selectors) {
-        if (!isTargetDomain()) {
-            return 0;
-        }
-        if (!selectors || !selectors.length) {
-            return 0;
-        }
+    function startTest() {
+        if (!document.body) return;
+        if (document.getElementById(boxId)) return;
+
+        var box = document.createElement('div');
+        box.id = boxId;
+
+        box.style.cssText =
+            'position:fixed;top:30px;left:15px;' +
+            'z-index:2147483647;padding:12px;' +
+            'background:#202124;color:white;' +
+            'border:2px solid #673ab7;' +
+            'font-size:13px;line-height:1.7;' +
+            'white-space:pre-line;';
+
+        box.textContent = 'SAB Observer Test\nStarting...';
+        document.body.appendChild(box);
 
         try {
-            var parent = document.head || document.documentElement || document.body;
-            if (!parent) {
-                return 0;
+            if (typeof MutationObserver !== 'function') {
+                showResult('NOT AVAILABLE');
+                return;
             }
 
-            var oldStyle = document.getElementById(styleId);
-            if (oldStyle && oldStyle.parentNode) {
-                oldStyle.parentNode.removeChild(oldStyle);
-            }
+            var observer = new MutationObserver(function (records) {
+                var changed = false;
+                var i;
 
-            var rules = [];
-            var applied = 0;
-            var i;
-            var sel;
-
-            for (i = 0; i < selectors.length && applied < maxCssSelectors; i++) {
-                sel = selectors[i];
-                if (!isSafeSelector(sel)) {
-                    continue;
-                }
-                rules.push(sel + '{display:none !important;visibility:hidden !important;}');
-                applied++;
-            }
-
-            if (rules.length === 0) {
-                return 0;
-            }
-
-            var styleEl = document.createElement('style');
-            styleEl.id = styleId;
-            styleEl.type = 'text/css';
-            styleEl.textContent = rules.join('\n');
-            parent.appendChild(styleEl);
-
-            return applied;
-        } catch (e) {
-            return 0;
-        }
-    }
-
-    function createPanel() {
-        if (document.getElementById(panelId)) {
-            return;
-        }
-
-        if (!document.body) return;
-
-        var panel = document.createElement('div');
-
-        panel.id = panelId;
-
-        panel.style.cssText = [
-            'position:fixed',
-            'right:20px',
-            'bottom:95px',
-            'z-index:2147483647',
-            'width:240px',
-            'padding:15px',
-            'background:#202124',
-            'color:white',
-            'border:1px solid #555',
-            'border-radius:12px',
-            'box-shadow:0 3px 12px rgba(0,0,0,0.5)',
-            'font-size:14px',
-            'line-height:1.7',
-            'font-family:sans-serif',
-            'display:none',
-            'pointer-events:auto',
-            'box-sizing:border-box'
-        ].join(';');
-
-        panel.innerHTML =
-            '<div style="font-size:16px;font-weight:bold;margin-bottom:10px;">🛡 Simple AD Blocker</div>' +
-            '<div>状態：<span style="color:#4caf50;">UI動作中</span></div>' +
-            '<div>対象サイト：<span id="sab-domain-status">未判定</span></div>' +
-            '<div>EasyList：<span id="sab-easylist-status">未取得</span></div>' +
-            '<div>EasyPrivacy：<span id="sab-privacy-status">未取得</span></div>' +
-            '<div>ルール解析：<span id="sab-rule-stats">未解析</span></div>' +
-            '<div>適用CSS：<span id="sab-applied-css">未適用</span></div>' +
-            '<div>通信遮断数：0</div>' +
-            '<div>広告要素除去数：0</div>' +
-            '<div style="margin-top:12px;text-align:right;"><span id="sab-close-button" style="display:inline-block;padding:5px 14px;background:#444;border-radius:6px;cursor:pointer;">閉じる</span></div>';
-
-        document.body.appendChild(panel);
-
-        var domainEl = document.getElementById('sab-domain-status');
-        if (domainEl) {
-            domainEl.textContent = isTargetDomain() ? '対象（Game8/GameWith）' : '対象外';
-        }
-
-        var closeButton = document.getElementById('sab-close-button');
-
-        if (closeButton) {
-            closeButton.addEventListener('click', function () {
-                panel.style.display = 'none';
-            });
-        }
-    }
-
-    function parseEasyListRules(text) {
-        var cssCount = 0;
-        var exceptionCount = 0;
-        var selectors = [];
-
-        if (typeof text !== 'string' || text.length === 0) {
-            return {
-                cssCount: 0,
-                exceptionCount: 0,
-                selectors: selectors
-            };
-        }
-
-        var host = getCurrentHost();
-        var start = 0;
-        var lineEnd;
-        var line;
-        var markerIdx;
-        var domainPart;
-        var selectorPart;
-
-        while (start <= text.length) {
-            lineEnd = text.indexOf('\n', start);
-            if (lineEnd === -1) {
-                line = text.slice(start);
-                start = text.length + 1;
-            } else {
-                line = text.slice(start, lineEnd);
-                start = lineEnd + 1;
-            }
-
-            if (line.charAt(line.length - 1) === '\r') {
-                line = line.slice(0, -1);
-            }
-
-            line = line.replace(/^\s+|\s+$/g, '');
-
-            if (!line || line.charAt(0) === '!') {
-                continue;
-            }
-
-            if (line.indexOf('#@#') !== -1) {
-                exceptionCount++;
-            } else if (line.indexOf('##') !== -1) {
-                cssCount++;
-                if (selectors.length < maxCssSelectors) {
-                    markerIdx = line.indexOf('##');
-                    domainPart = line.slice(0, markerIdx);
-                    selectorPart = line.slice(markerIdx + 2).replace(/^\s+|\s+$/g, '');
-                    if (selectorPart && (!domainPart || isDomainMatchedSimple(domainPart, host))) {
-                        selectors.push(selectorPart);
+                for (i = 0; i < records.length; i++) {
+                    if (records[i].target !== box &&
+                        !box.contains(records[i].target)) {
+                        changed = true;
+                        break;
                     }
                 }
-            }
-        }
 
-        return {
-            cssCount: cssCount,
-            exceptionCount: exceptionCount,
-            selectors: selectors
-        };
-    }
-
-    function loadFilters() {
-        if (filtersLoaded) return;
-
-        filtersLoaded = true;
-
-        var easyListStatus =
-            document.getElementById('sab-easylist-status');
-
-        var privacyStatus =
-            document.getElementById('sab-privacy-status');
-
-        var ruleStats =
-            document.getElementById('sab-rule-stats');
-
-        var appliedCssEl =
-            document.getElementById('sab-applied-css');
-
-        if (!easyListStatus || !privacyStatus) return;
-
-        easyListStatus.textContent = '取得中...';
-        privacyStatus.textContent = '取得中...';
-        if (ruleStats) {
-            ruleStats.textContent = '解析中...';
-        }
-        if (appliedCssEl) {
-            appliedCssEl.textContent = '適用中...';
-        }
-
-        try {
-            var easyList = SLEX_httpGet(
-                'https://easylist.to/easylist/easylist.txt'
-            );
-
-            if (typeof easyList === 'string' && easyList.length > 0) {
-                easyListStatus.textContent =
-                    '取得成功（' + easyList.length + '文字）';
-
-                var parsed = parseEasyListRules(easyList);
-                if (ruleStats) {
-                    ruleStats.textContent =
-                        'CSS ' + parsed.cssCount + ' / 例外 ' + parsed.exceptionCount;
+                if (changed) {
+                    detected++;
+                    showResult('CALLBACK OK');
                 }
+            });
 
-                var combinedSelectors = parsed.selectors.concat(getSiteSpecificSelectors());
-                var appliedCount = applyCssRules(combinedSelectors);
-                if (appliedCssEl) {
-                    appliedCssEl.textContent = isTargetDomain()
-                        ? (appliedCount + '件')
-                        : '対象外';
-                }
-            } else {
-                easyListStatus.textContent = '取得失敗';
-                if (ruleStats) {
-                    ruleStats.textContent = '対象なし';
-                }
-                if (appliedCssEl) {
-                    appliedCssEl.textContent = '未適用';
-                }
-            }
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            showResult('CREATED');
+
+            var target = document.createElement('div');
+            target.className = 'ad-banner';
+            target.textContent = 'TEST TARGET';
+            document.body.appendChild(target);
+
         } catch (e) {
-            easyListStatus.textContent = 'エラー';
-            if (ruleStats) {
-                ruleStats.textContent = 'エラー';
-            }
-            if (appliedCssEl) {
-                appliedCssEl.textContent = 'エラー';
-            }
+            showResult('ERROR: ' + String(e));
         }
-
-        try {
-            var easyPrivacy = SLEX_httpGet(
-                'https://easylist.to/easylist/easyprivacy.txt'
-            );
-
-            if (
-                typeof easyPrivacy === 'string' &&
-                easyPrivacy.length > 0
-            ) {
-                privacyStatus.textContent =
-                    '取得成功（' + easyPrivacy.length + '文字）';
-            } else {
-                privacyStatus.textContent = '取得失敗';
-            }
-        } catch (e) {
-            privacyStatus.textContent = 'エラー';
-        }
-    }
-
-    function showShield() {
-        if (!document.body) return;
-
-        if (document.getElementById(shieldId)) {
-            return;
-        }
-
-        var button = document.createElement('div');
-
-        button.id = shieldId;
-        button.textContent = '🛡';
-
-        button.style.cssText = [
-            'position:fixed',
-            'right:20px',
-            'bottom:30px',
-            'z-index:2147483647',
-            'width:55px',
-            'height:55px',
-            'border-radius:50%',
-            'background:#1976d2',
-            'color:white',
-            'font-size:26px',
-            'font-weight:bold',
-            'display:flex',
-            'align-items:center',
-            'justify-content:center',
-            'box-shadow:0 2px 8px #000',
-            'pointer-events:auto',
-            'cursor:pointer'
-        ].join(';');
-
-        button.addEventListener('click', function () {
-            createPanel();
-
-            var panel = document.getElementById(panelId);
-
-            if (panel) {
-                if (panel.style.display === 'none') {
-                    panel.style.display = 'block';
-                    loadFilters();
-                } else {
-                    panel.style.display = 'none';
-                }
-            }
-        });
-
-        document.body.appendChild(button);
-    }
-
-    function initialize() {
-        showShield();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener(
-            'DOMContentLoaded',
-            initialize
-        );
+        document.addEventListener('DOMContentLoaded', startTest);
     } else {
-        initialize();
+        startTest();
     }
 
-    setTimeout(initialize, 1000);
-    setTimeout(initialize, 3000);
+    setTimeout(startTest, 1000);
 
 })();
