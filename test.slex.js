@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.7
-// @description SAB domain-specific CSS rules and exception filtering
+// @version     1.4.10
+// @description SAB safe domain rule matching and shield recovery
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -38,25 +38,18 @@
         );
     }
 
-    function matchSingleDomain(host, targetDomain) {
-        if (!host || !targetDomain) return false;
-        var d = targetDomain.replace(/^\s+|\s+$/g, '').toLowerCase();
-        if (!d || d.charAt(0) === '~') return false;
-        return host === d || host.slice(-(d.length + 1)) === '.' + d;
-    }
-
-    function isDomainMatchedForCurrentHost(domainPart) {
-        if (!domainPart) return false;
-        var host = getCurrentHost();
-        if (!host) return false;
+    function isDomainMatchedSimple(domainPart, host) {
+        if (!domainPart || !host) return false;
+        if (domainPart.indexOf('~') !== -1) return false;
 
         var parts = domainPart.split(',');
         var i;
+        var d;
+
         for (i = 0; i < parts.length; i++) {
-            if (parts[i].replace(/^\s+|\s+$/g, '').charAt(0) === '~') {
-                return false;
-            }
-            if (matchSingleDomain(host, parts[i])) {
+            d = parts[i].replace(/^\s+|\s+$/g, '').toLowerCase();
+            if (!d) continue;
+            if (host === d || host.indexOf('.' + d) !== -1) {
                 return true;
             }
         }
@@ -81,18 +74,18 @@
         return true;
     }
 
-    function applyCssRules(selectors, exceptions) {
+    function applyCssRules(selectors) {
         if (!isTargetDomain()) {
-            return { applied: 0, skippedByException: 0 };
+            return 0;
         }
         if (!selectors || !selectors.length) {
-            return { applied: 0, skippedByException: 0 };
+            return 0;
         }
 
         try {
             var parent = document.head || document.documentElement || document.body;
             if (!parent) {
-                return { applied: 0, skippedByException: 0 };
+                return 0;
             }
 
             var oldStyle = document.getElementById(styleId);
@@ -100,17 +93,8 @@
                 oldStyle.parentNode.removeChild(oldStyle);
             }
 
-            var exceptionMap = {};
-            var j;
-            if (exceptions && exceptions.length) {
-                for (j = 0; j < exceptions.length; j++) {
-                    exceptionMap[exceptions[j]] = true;
-                }
-            }
-
             var rules = [];
             var applied = 0;
-            var skippedByException = 0;
             var i;
             var sel;
 
@@ -119,16 +103,12 @@
                 if (!isSafeSelector(sel)) {
                     continue;
                 }
-                if (exceptionMap[sel]) {
-                    skippedByException++;
-                    continue;
-                }
                 rules.push(sel + '{display:none !important;visibility:hidden !important;}');
                 applied++;
             }
 
             if (rules.length === 0) {
-                return { applied: 0, skippedByException: skippedByException };
+                return 0;
             }
 
             var styleEl = document.createElement('style');
@@ -137,9 +117,9 @@
             styleEl.textContent = rules.join('\n');
             parent.appendChild(styleEl);
 
-            return { applied: applied, skippedByException: skippedByException };
+            return applied;
         } catch (e) {
-            return { applied: 0, skippedByException: 0 };
+            return 0;
         }
     }
 
@@ -206,17 +186,16 @@
         var cssCount = 0;
         var exceptionCount = 0;
         var selectors = [];
-        var exceptions = [];
 
         if (typeof text !== 'string' || text.length === 0) {
             return {
                 cssCount: 0,
                 exceptionCount: 0,
-                selectors: selectors,
-                exceptions: exceptions
+                selectors: selectors
             };
         }
 
+        var host = getCurrentHost();
         var start = 0;
         var lineEnd;
         var line;
@@ -246,19 +225,13 @@
 
             if (line.indexOf('#@#') !== -1) {
                 exceptionCount++;
-                markerIdx = line.indexOf('#@#');
-                domainPart = line.slice(0, markerIdx);
-                selectorPart = line.slice(markerIdx + 3).replace(/^\s+|\s+$/g, '');
-                if (selectorPart && (!domainPart || isDomainMatchedForCurrentHost(domainPart))) {
-                    exceptions.push(selectorPart);
-                }
             } else if (line.indexOf('##') !== -1) {
                 cssCount++;
                 if (selectors.length < maxCssSelectors) {
                     markerIdx = line.indexOf('##');
                     domainPart = line.slice(0, markerIdx);
                     selectorPart = line.slice(markerIdx + 2).replace(/^\s+|\s+$/g, '');
-                    if (selectorPart && (!domainPart || isDomainMatchedForCurrentHost(domainPart))) {
+                    if (selectorPart && (!domainPart || isDomainMatchedSimple(domainPart, host))) {
                         selectors.push(selectorPart);
                     }
                 }
@@ -268,8 +241,7 @@
         return {
             cssCount: cssCount,
             exceptionCount: exceptionCount,
-            selectors: selectors,
-            exceptions: exceptions
+            selectors: selectors
         };
     }
 
@@ -316,10 +288,10 @@
                         'CSS ' + parsed.cssCount + ' / 例外 ' + parsed.exceptionCount;
                 }
 
-                var result = applyCssRules(parsed.selectors, parsed.exceptions);
+                var appliedCount = applyCssRules(parsed.selectors);
                 if (appliedCssEl) {
                     appliedCssEl.textContent = isTargetDomain()
-                        ? (result.applied + '件（除外' + result.skippedByException + '）')
+                        ? (appliedCount + '件')
                         : '対象外';
                 }
             } else {
@@ -392,4 +364,38 @@
             'cursor:pointer'
         ].join(';');
 
-        button.addEventListener('click',
+        button.addEventListener('click', function () {
+            createPanel();
+
+            var panel = document.getElementById(panelId);
+
+            if (panel) {
+                if (panel.style.display === 'none') {
+                    panel.style.display = 'block';
+                    loadFilters();
+                } else {
+                    panel.style.display = 'none';
+                }
+            }
+        });
+
+        document.body.appendChild(button);
+    }
+
+    function initialize() {
+        showShield();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener(
+            'DOMContentLoaded',
+            initialize
+        );
+    } else {
+        initialize();
+    }
+
+    setTimeout(initialize, 1000);
+    setTimeout(initialize, 3000);
+
+})();
