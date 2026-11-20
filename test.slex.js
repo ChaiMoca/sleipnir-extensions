@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.5
-// @description SAB domain check only test
+// @version     1.4.6
+// @description SAB safe CSS rule injection test
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -12,7 +12,9 @@
 
     var shieldId = 'sab-test-button';
     var panelId = 'sab-status-panel';
+    var styleId = 'sab-applied-css-style';
     var filtersLoaded = false;
+    var maxCssSelectors = 1000;
 
     function isTargetDomain() {
         var host = '';
@@ -30,6 +32,73 @@
             host === 'game8.jp' ||
             host.indexOf('.game8.jp') !== -1
         );
+    }
+
+    function isSafeSelector(sel) {
+        if (!sel || typeof sel !== 'string') return false;
+        if (sel.length === 0 || sel.length > 100) return false;
+        if (
+            sel.indexOf(':-abp-') !== -1 ||
+            sel.indexOf(':has(') !== -1 ||
+            sel.indexOf(':contains(') !== -1 ||
+            sel.indexOf(':matches-css(') !== -1 ||
+            sel.indexOf('{') !== -1 ||
+            sel.indexOf('}') !== -1 ||
+            sel.indexOf(';') !== -1 ||
+            sel.indexOf('expression(') !== -1
+        ) {
+            return false;
+        }
+        return true;
+    }
+
+    function applyCssRules(selectors) {
+        if (!isTargetDomain()) {
+            return 0;
+        }
+        if (!selectors || !selectors.length) {
+            return 0;
+        }
+
+        try {
+            var parent = document.head || document.documentElement || document.body;
+            if (!parent) {
+                return 0;
+            }
+
+            var oldStyle = document.getElementById(styleId);
+            if (oldStyle && oldStyle.parentNode) {
+                oldStyle.parentNode.removeChild(oldStyle);
+            }
+
+            var rules = [];
+            var applied = 0;
+            var i;
+            var sel;
+
+            for (i = 0; i < selectors.length && applied < maxCssSelectors; i++) {
+                sel = selectors[i];
+                if (!isSafeSelector(sel)) {
+                    continue;
+                }
+                rules.push(sel + '{display:none !important;visibility:hidden !important;}');
+                applied++;
+            }
+
+            if (rules.length === 0) {
+                return 0;
+            }
+
+            var styleEl = document.createElement('style');
+            styleEl.id = styleId;
+            styleEl.type = 'text/css';
+            styleEl.textContent = rules.join('\n');
+            parent.appendChild(styleEl);
+
+            return applied;
+        } catch (e) {
+            return 0;
+        }
     }
 
     function createPanel() {
@@ -70,6 +139,7 @@
             '<div>EasyList：<span id="sab-easylist-status">未取得</span></div>' +
             '<div>EasyPrivacy：<span id="sab-privacy-status">未取得</span></div>' +
             '<div>ルール解析：<span id="sab-rule-stats">未解析</span></div>' +
+            '<div>適用CSS：<span id="sab-applied-css">未適用</span></div>' +
             '<div>通信遮断数：0</div>' +
             '<div>広告要素除去数：0</div>' +
             '<div style="margin-top:12px;text-align:right;"><span id="sab-close-button" style="display:inline-block;padding:5px 14px;background:#444;border-radius:6px;cursor:pointer;">閉じる</span></div>';
@@ -93,17 +163,22 @@
     function parseEasyListRules(text) {
         var cssCount = 0;
         var exceptionCount = 0;
+        var selectors = [];
 
         if (typeof text !== 'string' || text.length === 0) {
             return {
                 cssCount: 0,
-                exceptionCount: 0
+                exceptionCount: 0,
+                selectors: selectors
             };
         }
 
         var start = 0;
         var lineEnd;
         var line;
+        var markerIdx;
+        var domainPart;
+        var selectorPart;
 
         while (start <= text.length) {
             lineEnd = text.indexOf('\n', start);
@@ -129,12 +204,21 @@
                 exceptionCount++;
             } else if (line.indexOf('##') !== -1) {
                 cssCount++;
+                if (selectors.length < maxCssSelectors) {
+                    markerIdx = line.indexOf('##');
+                    domainPart = line.slice(0, markerIdx);
+                    selectorPart = line.slice(markerIdx + 2).replace(/^\s+|\s+$/g, '');
+                    if (!domainPart && selectorPart) {
+                        selectors.push(selectorPart);
+                    }
+                }
             }
         }
 
         return {
             cssCount: cssCount,
-            exceptionCount: exceptionCount
+            exceptionCount: exceptionCount,
+            selectors: selectors
         };
     }
 
@@ -152,12 +236,18 @@
         var ruleStats =
             document.getElementById('sab-rule-stats');
 
+        var appliedCssEl =
+            document.getElementById('sab-applied-css');
+
         if (!easyListStatus || !privacyStatus) return;
 
         easyListStatus.textContent = '取得中...';
         privacyStatus.textContent = '取得中...';
         if (ruleStats) {
             ruleStats.textContent = '解析中...';
+        }
+        if (appliedCssEl) {
+            appliedCssEl.textContent = '適用中...';
         }
 
         try {
@@ -174,16 +264,29 @@
                     ruleStats.textContent =
                         'CSS ' + parsed.cssCount + ' / 例外 ' + parsed.exceptionCount;
                 }
+
+                var appliedCount = applyCssRules(parsed.selectors);
+                if (appliedCssEl) {
+                    appliedCssEl.textContent = isTargetDomain()
+                        ? (appliedCount + '件')
+                        : '対象外';
+                }
             } else {
                 easyListStatus.textContent = '取得失敗';
                 if (ruleStats) {
                     ruleStats.textContent = '対象なし';
+                }
+                if (appliedCssEl) {
+                    appliedCssEl.textContent = '未適用';
                 }
             }
         } catch (e) {
             easyListStatus.textContent = 'エラー';
             if (ruleStats) {
                 ruleStats.textContent = 'エラー';
+            }
+            if (appliedCssEl) {
+                appliedCssEl.textContent = 'エラー';
             }
         }
 
