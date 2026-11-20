@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.15
-// @description SAB clean restore of v1.4.12
+// @version     1.4.16
+// @description SAB minimal site selectors merged into applyCssRules
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -36,6 +36,21 @@
             host === 'game8.jp' ||
             host.indexOf('.game8.jp') !== -1
         );
+    }
+
+    function getSiteSpecificSelectors() {
+        if (!isTargetDomain()) {
+            return [];
+        }
+        return [
+            'ins.adsbygoogle',
+            '[data-ad-slot]',
+            '.ad-banner',
+            '.ad_banner',
+            '.pr-banner',
+            '.pr_banner',
+            '.sponsored'
+        ];
     }
 
     function isDomainMatchedSimple(domainPart, host) {
@@ -288,7 +303,8 @@
                         'CSS ' + parsed.cssCount + ' / 例外 ' + parsed.exceptionCount;
                 }
 
-                var appliedCount = applyCssRules(parsed.selectors);
+                var combinedSelectors = parsed.selectors.concat(getSiteSpecificSelectors());
+                var appliedCount = applyCssRules(combinedSelectors);
                 if (appliedCssEl) {
                     appliedCssEl.textContent = isTargetDomain()
                         ? (appliedCount + '件')
