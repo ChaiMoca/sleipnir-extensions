@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Simple AD Blocker
 // @namespace   custom.sleipnir
-// @version     1.4.13
-// @description SAB Game8 and GameWith ad/PR CSS rules on v1.4.12 base
+// @version     1.4.14
+// @description SAB ASCII-only site CSS rules on v1.4.12 base
 // @include     *://*/*
 // @require api
 // ==/UserScript==
@@ -132,7 +132,7 @@
                 el.textContent = String(siteRuleCount);
             }
         } catch (e) {
-            // 表示更新エラー時は無視
+            // ignore
         }
     }
 
@@ -152,14 +152,12 @@
                 return;
             }
 
-            // Game8・GameWith向けに誤爆を抑えつつ広告/PR枠を隠すセレクタ群
             var siteSelectors = [
                 'ins.adsbygoogle',
                 '[data-ad-slot]',
                 '[data-google-query-id]',
                 '[class*="ad-banner"]',
                 '[class*="ad_banner"]',
-                '[class*="ad-枠"]',
                 '[class*="pr-banner"]',
                 '[class*="pr_banner"]',
                 '[class*="sponsored"]',
@@ -184,7 +182,7 @@
             siteRuleCount = count;
             updateHiddenCountDisplay();
         } catch (e) {
-            // サイト別CSS注入エラー時もUIや既存処理を維持
+            // ignore
         }
     }
 
